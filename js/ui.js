@@ -2,7 +2,7 @@
 // ui.js — screen helpers, overlays, game start/reset
 // ============================================================
 
-import { S } from './state.js';
+import { S, WIN_RETURN_BTN } from './state.js';
 import { checkAndSaveHighScore, showRecordModal } from './highscore.js';
 import { resetMarioPowerupSystem } from './powerups.js';
 import { FLAP } from './config.js';
@@ -156,8 +156,7 @@ export function handleCanvasClick(e, showWinScreenFn) {
     const scaleY = S.canvas.height / rect.height;
     const cx     = (e.clientX - rect.left) * scaleX;
     const cy     = (e.clientY - rect.top)  * scaleY;
-    const { WIN_RETURN_BTN: b } = await import('./state.js').catch(() => ({ WIN_RETURN_BTN: null }));
-    const btn = { x: S.canvas.width / 2 - 130, y: S.canvas.height - 100, w: 260, h: 55 };
+    const btn = WIN_RETURN_BTN;
     if (cx >= btn.x && cx <= btn.x + btn.w && cy >= btn.y && cy <= btn.y + btn.h) {
       showWinScreenFn(); return;
     }
