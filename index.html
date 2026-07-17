@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flappy Friend</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="game-wrap">
+
+  <div id="ui">
+    <span>Score: <b id="scoreVal">0</b></span>
+    <span>Speed: <b id="speedVal">1.0</b>x</span>
+  </div>
+
+  <div id="score-display" style="display:none"></div>
+  <canvas id="c"></canvas>
+  <div id="poop-overlay"></div>
+
+  <div id="record-modal" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; z-index:30; align-items:center; justify-content:center; flex-direction:column; background:rgba(0,0,0,0.82);">
+    <div id="record-inner" style="text-align:center; padding:40px 50px; background:linear-gradient(135deg,#1a0033,#3d006e,#1a0033); border-radius:20px; border:3px solid #FFD700; box-shadow:0 0 60px rgba(255,215,0,0.6), 0 0 20px rgba(255,100,0,0.4);">
+      <div style="font-size:64px; margin-bottom:10px">🏆</div>
+      <h2 id="record-title" style="color:#FFD700; font-size:38px; text-shadow:0 0 20px #FFD700; margin-bottom:12px; font-family:Arial,sans-serif;">NEW RECORD!</h2>
+      <p id="record-msg" style="color:#fff; font-size:20px; margin-bottom:8px; font-family:Arial,sans-serif;"></p>
+      <p id="record-prev" style="color:#aaa; font-size:15px; margin-bottom:28px; font-family:Arial,sans-serif;"></p>
+      <button onclick="closeRecordModal()" style="padding:14px 36px; font-size:20px; background:linear-gradient(135deg,#FFD700,#FFA500); color:#000; border:none; border-radius:10px; cursor:pointer; font-weight:bold; box-shadow:0 4px 15px rgba(255,165,0,0.5);">🎉 Awesome!</button>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <h1>&#x1F426; Flappy Friend</h1>
+    <p>Upload your friend's photo:</p>
+    <label id="photoLabel">
+      &#x1F4F7; Choose Photo
+      <input type="file" id="photoInput" accept="image/*">
+    </label>
+    <img id="photoPreview" src="" alt="preview">
+
+    <p style="margin-top:16px">Choose a theme:</p>
+    <div>
+      <button class="theme-btn active" id="btn-nature"   onclick="setTheme('nature')">&#x1F33F; OG</button>
+      <button class="theme-btn"        id="btn-desert"   onclick="setTheme('desert')">&#x1F3DC; Desert</button>
+      <button class="theme-btn"        id="btn-mountain" onclick="setTheme('mountain')">&#x1F3D4; Mountain</button>
+    </div>
+    <br>
+    <button id="startBtn" onclick="startGame()">&#x25B6; Start Game</button>
+    <button id="multiBtn" onclick="startMultiGame()" style="margin-left:10px; background:linear-gradient(135deg,#e74c3c,#c0392b); color:#fff; border:none; padding:12px 20px; font-size:16px; font-weight:bold; border-radius:8px; cursor:pointer;">&#x2694;&#xFE0F; 2 Player</button>
+    <p style="margin-top:12px; font-size:14px; color:#ccc">1P: Click / Space to flap &nbsp;|&nbsp; 2P: Q and L to flap</p>
+  </div><!-- #overlay -->
+
+  </div><!-- #game-wrap -->
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

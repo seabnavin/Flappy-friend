@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    // Provides a live-reload preview so you can also open browser-tests.html
+    // directly in VS Code: right-click → "Open with Live Preview".
+    "ms-vscode.live-server"
+  ]
+}

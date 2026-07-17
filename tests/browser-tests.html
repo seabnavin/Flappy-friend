@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<!--
+  Flappy Friend — Browser Test Suite (no Node.js, no internet required)
+  Open this file directly in a browser (or with VS Code Live Preview).
+  All dependencies are self-contained — no CDN, no installs.
+  Tests automatically re-run on manual page reload.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flappy Friend — Tests</title>
+  <style>
+    body  { font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+    #qunit { max-width: 900px; margin: 0 auto; }
+    #qunit-banner { padding: 10px 16px; border-radius: 6px; margin-bottom: 8px; font-size: 16px; }
+    #qunit-banner.pass { background: #C6E746; color: #284d00; }
+    #qunit-banner.fail { background: #EE5757; color: #fff; }
+    #qunit-moduleheader { background: #366; color: #fff; padding: 6px 12px; margin: 12px 0 4px; border-radius: 4px; font-weight: bold; }
+    #qunit-tests { list-style: none; padding: 0; margin: 0; }
+    #qunit-tests li { padding: 4px 12px; border-bottom: 1px solid #ddd; font-size: 13px; }
+    #qunit-tests li.pass { background: #fff; color: #284d00; }
+    #qunit-tests li.fail { background: #fff0f0; color: #900; }
+    .assert-detail { margin: 2px 0 2px 20px; font-size: 12px; color: #800; }
+    #game-dom { display: none; position: absolute; top: -9999px; left: -9999px; }
+  </style>
+</head>
+<body>
+
+<!-- Test output -->
+<div id="qunit">
+  <div id="qunit-banner"></div>
+  <ol id="qunit-tests"></ol>
+</div>
+
+<!--
+  Hidden DOM that game.js expects to find when it initialises.
+  Must be present BEFORE game.js is loaded.
+-->
+<div id="game-dom">
+  <canvas id="c"></canvas>
+  <div id="ui">
+    <span>Score: <b id="scoreVal">0</b></span>
+    <span>Speed: <b id="speedVal">1.0</b>x</span>
+  </div>
+  <div id="score-display" style="display:none"></div>
+  <div id="poop-overlay"></div>
+  <div id="record-modal" style="display:none">
+    <p id="record-msg"></p>
+    <p id="record-prev"></p>
+  </div>
+  <div id="overlay">
+    <h1></h1>
+    <p></p>
+    <div>
+      <button id="btn-nature"   class="theme-btn active"></button>
+      <button id="btn-desert"   class="theme-btn"></button>
+      <button id="btn-mountain" class="theme-btn"></button>
+    </div>
+    <input id="photoInput" type="file">
+    <img   id="photoPreview">
+    <button id="startBtn"></button>
+  </div>
+</div>
+
+<!-- ① Mock browser APIs BEFORE game.js runs -->
+<script>
+  // Prevent the game loop from actually running during tests
+  window.requestAnimationFrame = function(cb) { return setTimeout(cb, 16); };
+  window.cancelAnimationFrame  = function(id) { clearTimeout(id); };
+
+  // Minimal canvas 2D context mock — every method is a no-op
+  (function() {
+    var noop = function() {};
+    var gradientStub = { addColorStop: noop };
+    var mockCtx = new Proxy(
+      {
+        createLinearGradient: function() { return gradientStub; },
+        createRadialGradient: function() { return gradientStub; },
+        createPattern:        function() { return {}; },
+        measureText:          function() { return { width: 100 }; },
+        getImageData:         function() { return { data: [] }; },
+      },
+      {
+        get: function(target, prop) {
+          if (prop in target) return target[prop];
+          return function() { return mockCtx; }; // unknown methods chain
+        }
+      }
+    );
+    HTMLCanvasElement.prototype.getContext = function() { return mockCtx; };
+  })();
+</script>
+
+<!-- ③ Load game.js (works both in Edge headless over file:// and when opened manually) -->
+<script src="../game.js"></script>
+
+<!-- ③ Self-contained test framework (QUnit-compatible API, zero dependencies) -->
+<script>
+;(function(win, doc) {
+  'use strict'
+
+  // ── Internal state ────────────────────────────────────────────────────────
+  var _suites           = []          // array of { name, hooks, tests }
+  var _currentSuite     = null        // suite being defined right now
+  var _doneCallbacks    = []
+  var _testDoneCallbacks = []
+
+  function _newSuite(name) {
+    return { name: name, hooks: {}, tests: [] }
+  }
+
+  // ── Public QUnit API ──────────────────────────────────────────────────────
+  win.QUnit = {
+    module: function(name, fn) {
+      var suite = _newSuite(name)
+      _suites.push(suite)
+      if (typeof fn === 'function') {
+        _currentSuite = suite
+        fn({
+          beforeEach: function(h) { suite.hooks.beforeEach = h },
+          afterEach:  function(h) { suite.hooks.afterEach  = h },
+          before:     function(h) { suite.hooks.before     = h },
+          after:      function(h) { suite.hooks.after      = h },
+        })
+        _currentSuite = null
+      }
+    },
+
+    test: function(name, fn) {
+      // Attach to current suite or create an implicit top-level suite
+      var suite = _currentSuite
+      if (!suite) {
+        if (!_suites.length || _suites[_suites.length - 1]._implicit !== true) {
+          suite = _newSuite('')
+          suite._implicit = true
+          _suites.push(suite)
+        } else {
+          suite = _suites[_suites.length - 1]
+        }
+      }
+      suite.tests.push({ name: name, fn: fn })
+    },
+
+    done:     function(cb) { _doneCallbacks.push(cb) },
+    testDone: function(cb) { _testDoneCallbacks.push(cb) },
+
+    // ── Runner (called automatically on window.load) ──────────────────────
+    _run: function() {
+      var totalPassed = 0, totalFailed = 0, tStart = Date.now()
+      var list = doc.getElementById('qunit-tests')
+
+      _suites.forEach(function(suite) {
+        // Module header
+        if (suite.name && list) {
+          var hdr = doc.createElement('li')
+          hdr.id = 'qunit-moduleheader'
+          hdr.textContent = suite.name
+          list.appendChild(hdr)
+        }
+
+        if (suite.hooks.before) try { suite.hooks.before() } catch(e) {}
+
+        suite.tests.forEach(function(t) {
+          var assertions = []
+          var assert = {
+            strictEqual: function(a, b, msg) {
+              assertions.push({ result: a === b, message: msg || '', actual: a, expected: b })
+            },
+            equal: function(a, b, msg) {
+              assertions.push({ result: a == b, message: msg || '', actual: a, expected: b })
+            },
+            ok: function(v, msg) {
+              assertions.push({ result: !!v, message: msg || '', actual: v, expected: 'truthy' })
+            },
+            notOk: function(v, msg) {
+              assertions.push({ result: !v, message: msg || '', actual: v, expected: 'falsy' })
+            },
+          }
+
+          if (suite.hooks.beforeEach) try { suite.hooks.beforeEach() } catch(e) {}
+          try   { t.fn(assert) }
+          catch (e) { assertions.push({ result: false, message: 'Threw: ' + e.message, actual: e.message, expected: 'no error' }) }
+          if (suite.hooks.afterEach)  try { suite.hooks.afterEach()  } catch(e) {}
+
+          var passed = assertions.filter(function(a) { return  a.result }).length
+          var failed = assertions.filter(function(a) { return !a.result }).length
+          totalPassed += passed
+          totalFailed += failed
+
+          // Visual output
+          if (list) {
+            var li = doc.createElement('li')
+            li.className = failed ? 'fail' : 'pass'
+            li.textContent = (failed ? '\u2717 ' : '\u2713 ') + t.name +
+              ' (' + passed + '/' + assertions.length + ')'
+            if (failed) {
+              assertions.filter(function(a) { return !a.result }).forEach(function(a) {
+                var d = doc.createElement('div')
+                d.className = 'assert-detail'
+                d.textContent = (a.message || 'Assertion') +
+                  ' — expected: ' + String(a.expected) + ', got: ' + String(a.actual)
+                li.appendChild(d)
+              })
+            }
+            list.appendChild(li)
+          }
+
+          _testDoneCallbacks.forEach(function(cb) {
+            cb({ module: suite.name, name: t.name, passed: passed, failed: failed, assertions: assertions })
+          })
+        })
+
+        if (suite.hooks.after) try { suite.hooks.after() } catch(e) {}
+      })
+
+      // Banner
+      var banner = doc.getElementById('qunit-banner')
+      if (banner) {
+        var total = totalPassed + totalFailed
+        banner.textContent = (totalFailed === 0 ? '\u2705 All ' + total + ' assertions passed' :
+          '\u274C ' + totalFailed + ' of ' + total + ' assertions failed')
+        banner.className = totalFailed === 0 ? 'pass' : 'fail'
+      }
+
+      var runtime = Date.now() - tStart
+      _doneCallbacks.forEach(function(cb) {
+        cb({ total: totalPassed + totalFailed, passed: totalPassed, failed: totalFailed, runtime: runtime })
+      })
+    }
+  }
+
+  // Run after all scripts have loaded and executed.
+  win.addEventListener('load', function() { win.QUnit._run() })
+
+})(window, document)
+</script>
+
+<!-- ④ Tests -->
+<script>
+// ── Expose results so the PowerShell CDP driver can read them ─────────────────
+// Collects per-test details (including failures with actual/expected).
+window.qunitDone        = false
+window.qunitResults     = null
+window.qunitTestDetails = []
+
+QUnit.testDone(function(details) {
+  window.qunitTestDetails.push({
+    module:    details.module,
+    name:      details.name,
+    passed:    details.passed,
+    failed:    details.failed,
+    assertions: (details.assertions || []).map(function(a) {
+      return { result: a.result, message: a.message, actual: String(a.actual), expected: String(a.expected) }
+    })
+  })
+})
+
+QUnit.done(function(summary) {
+  window.qunitResults = { total: summary.total, passed: summary.passed, failed: summary.failed, runtime: summary.runtime }
+  window.qunitDone = true
+})
+</script>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+// 1. Canvas Configuration
+// ─────────────────────────────────────────────────────────────
+QUnit.module('Canvas Configuration', function() {
+
+  QUnit.test('canvas width is 720 px', function(assert) {
+    assert.strictEqual(document.getElementById('c').width, 720);
+  });
+
+  QUnit.test('canvas height is 640 px', function(assert) {
+    assert.strictEqual(document.getElementById('c').height, 640);
+  });
+
+});
+
+// ─────────────────────────────────────────────────────────────
+// 2. Collision Detection  (rectsOverlap)
+// ─────────────────────────────────────────────────────────────
+QUnit.module('Collision Detection (rectsOverlap)', function() {
+
+  QUnit.test('returns false — separated horizontally', function(assert) {
+    assert.strictEqual(rectsOverlap(0, 0, 10, 10,  20, 0, 10, 10), false);
+  });
+
+  QUnit.test('returns false — separated vertically', function(assert) {
+    assert.strictEqual(rectsOverlap(0, 0, 10, 10,  0, 20, 10, 10), false);
+  });
+
+  QUnit.test('returns false — rects touching edge-to-edge (not overlapping)', function(assert) {
+    assert.strictEqual(rectsOverlap(0, 0, 10, 10,  10, 0, 10, 10), false);
+  });
+
+  QUnit.test('returns true — one rect fully inside the other', function(assert) {
+    assert.strictEqual(rectsOverlap(0, 0, 100, 100,  10, 10, 20, 20), true);
+  });
+
+  QUnit.test('returns true — partial overlap', function(assert) {
+    assert.strictEqual(rectsOverlap(0, 0, 15, 15,  10, 10, 20, 20), true);
+  });
+
+  QUnit.test('returns true — bird hitbox collides with top pipe', function(assert) {
+    // Bird at (200, 50), hitbox 40×28 → box (180, 36, 40, 28)
+    // Top pipe at x=185, height=80, width=60
+    var bx = 200 - 20, by = 50 - 14, bw = 40, bh = 28;
+    assert.strictEqual(rectsOverlap(bx, by, bw, bh,  185, 0, 60, 80), true);
+  });
+
+  QUnit.test('returns false — bird safely between pipes (pipe off screen)', function(assert) {
+    var bx = 200 - 20, by = 300 - 14, bw = 40, bh = 28;
+    assert.strictEqual(rectsOverlap(bx, by, bw, bh,  500, 0, 60, 220), false);
+  });
+
+  QUnit.test('returns true — bird hitbox collides with bottom pipe', function(assert) {
+    // Bird at y=430, bottom pipe starts at y=380
+    var bx = 200 - 20, by = 430 - 14, bw = 40, bh = 28;
+    assert.strictEqual(rectsOverlap(bx, by, bw, bh,  185, 380, 60, 260), true);
+  });
+
+});
+
+// ─────────────────────────────────────────────────────────────
+// 3. High Score  (checkAndSaveHighScore)
+// ─────────────────────────────────────────────────────────────
+QUnit.module('High Score (checkAndSaveHighScore)', function(hooks) {
+
+  hooks.before(function() {
+    // Establish a known baseline before this module's tests run
+    checkAndSaveHighScore(500);
+  });
+
+  QUnit.test('returns null when score does not beat current record', function(assert) {
+    assert.strictEqual(checkAndSaveHighScore(100), null);
+  });
+
+  QUnit.test('returns previous best when new record is set', function(assert) {
+    // Internal highScore is 500 from the before hook
+    assert.strictEqual(checkAndSaveHighScore(600), 500);
+  });
+
+  QUnit.test('saves new record to localStorage', function(assert) {
+    assert.strictEqual(parseInt(localStorage.getItem('flappyHighScore')), 600);
+  });
+
+  QUnit.test('returns null for score equal to current record', function(assert) {
+    assert.strictEqual(checkAndSaveHighScore(600), null);
+  });
+
+  QUnit.test('does not overwrite a higher record with a lower score', function(assert) {
+    checkAndSaveHighScore(1);
+    assert.strictEqual(parseInt(localStorage.getItem('flappyHighScore')), 600);
+  });
+
+});
+
+// ─────────────────────────────────────────────────────────────
+// 4. Pipe Variant Selection  (pickPipeVariant)
+// ─────────────────────────────────────────────────────────────
+QUnit.module('Pipe Variants — Nature theme', function(hooks) {
+  hooks.before(function() { setTheme('nature'); });
+
+  QUnit.test('indices 0 and 1 are "normal"', function(assert) {
+    assert.strictEqual(pickPipeVariant(0), 'normal');
+    assert.strictEqual(pickPipeVariant(1), 'normal');
+  });
+
+  QUnit.test('index 2, 5, 8 are "minecraft_tree" (every 3rd)', function(assert) {
+    assert.strictEqual(pickPipeVariant(2), 'minecraft_tree');
+    assert.strictEqual(pickPipeVariant(5), 'minecraft_tree');
+    assert.strictEqual(pickPipeVariant(8), 'minecraft_tree');
+  });
+
+  QUnit.test('full 16-pipe pattern is correct', function(assert) {
+    for (var i = 0; i < 16; i++) {
+      var expected = i % 3 === 2 ? 'minecraft_tree' : 'normal';
+      assert.strictEqual(pickPipeVariant(i), expected, 'index ' + i);
+    }
+  });
+});
+
+QUnit.module('Pipe Variants — Desert theme', function(hooks) {
+  hooks.before(function() { setTheme('desert'); });
+  hooks.after(function()  { setTheme('nature'); });
+
+  QUnit.test('every pipe is "cactus"', function(assert) {
+    for (var i = 0; i < 16; i++) {
+      assert.strictEqual(pickPipeVariant(i), 'cactus', 'index ' + i);
+    }
+  });
+});
+
+QUnit.module('Pipe Variants — Mountain theme', function(hooks) {
+  hooks.before(function() { setTheme('mountain'); });
+  hooks.after(function()  { setTheme('nature'); });
+
+  QUnit.test('indices 0 and 1 are "icicle"', function(assert) {
+    assert.strictEqual(pickPipeVariant(0), 'icicle');
+    assert.strictEqual(pickPipeVariant(1), 'icicle');
+  });
+
+  QUnit.test('index 2, 5, 8 are "spruce_tree" (every 3rd)', function(assert) {
+    assert.strictEqual(pickPipeVariant(2), 'spruce_tree');
+    assert.strictEqual(pickPipeVariant(5), 'spruce_tree');
+    assert.strictEqual(pickPipeVariant(8), 'spruce_tree');
+  });
+
+  QUnit.test('full 16-pipe pattern is correct', function(assert) {
+    for (var i = 0; i < 16; i++) {
+      var expected = i % 3 === 2 ? 'spruce_tree' : 'icicle';
+      assert.strictEqual(pickPipeVariant(i), expected, 'index ' + i);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 5. Theme Switcher  (setTheme)
+// ─────────────────────────────────────────────────────────────
+QUnit.module('Theme Switcher (setTheme)', function(hooks) {
+  hooks.afterEach(function() { setTheme('nature'); });
+
+  QUnit.test('desert: activates desert button, deactivates others', function(assert) {
+    setTheme('desert');
+    assert.ok(document.getElementById('btn-desert').classList.contains('active'),   'desert active');
+    assert.notOk(document.getElementById('btn-nature').classList.contains('active'),   'nature inactive');
+    assert.notOk(document.getElementById('btn-mountain').classList.contains('active'), 'mountain inactive');
+  });
+
+  QUnit.test('mountain: activates mountain button, deactivates others', function(assert) {
+    setTheme('mountain');
+    assert.ok(document.getElementById('btn-mountain').classList.contains('active'),  'mountain active');
+    assert.notOk(document.getElementById('btn-nature').classList.contains('active'),   'nature inactive');
+    assert.notOk(document.getElementById('btn-desert').classList.contains('active'),   'desert inactive');
+  });
+
+  QUnit.test('nature: activates nature button, deactivates others', function(assert) {
+    setTheme('nature');
+    assert.ok(document.getElementById('btn-nature').classList.contains('active'),    'nature active');
+    assert.notOk(document.getElementById('btn-desert').classList.contains('active'),   'desert inactive');
+    assert.notOk(document.getElementById('btn-mountain').classList.contains('active'), 'mountain inactive');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 6. Required Game Functions Exist  (smoke tests)
+// ─────────────────────────────────────────────────────────────
+QUnit.module('Required Game Functions Exist', function() {
+  var names = [
+    'rectsOverlap', 'checkAndSaveHighScore', 'pickPipeVariant', 'setTheme',
+    'startGame', 'handleFlap', 'triggerTopDeath', 'triggerBottomDeath',
+    'triggerWin', 'spawnPipe', 'spawnExplosion', 'showDeathScreen',
+    'showWinScreen', 'closeRecordModal',
+  ];
+
+  names.forEach(function(name) {
+    QUnit.test(name + '() is defined', function(assert) {
+      assert.strictEqual(typeof window[name], 'function');
+    });
+  });
+});
+</script>
+
+</body>
+</html>
